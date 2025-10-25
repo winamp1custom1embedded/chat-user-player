@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Chating User</title>
+<style>
+:root{--bg:#0b1020;--card:#0f1724;--accent:#5eead4;--muted:#94a3b8}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial;min-height:100vh;
+background:linear-gradient(180deg,#071027 0%, #0b0f1a 100%);
+color:#e6eef8;display:flex;align-items:center;justify-content:center;padding:20px}
+.app{width:100%;max-width:950px;height:90vh;background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(0,0,0,0.02));
+border-radius:12px;overflow:hidden;display:grid;grid-template-columns:220px 1fr 280px;
+box-shadow:0 10px 30px rgba(2,6,23,0.6)}
+header{grid-column:1/-1;padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.03);
+display:flex;align-items:center;justify-content:space-between}
+header h1{font-size:16px;margin:0;color:var(--accent)}
+.rooms{background:var(--card);padding:12px;display:flex;flex-direction:column;gap:10px;
+border-right:1px solid rgba(255,255,255,0.03)}
+.room{padding:8px 10px;border-radius:8px;cursor:pointer;background:rgba(255,255,255,0.02);
+display:flex;justify-content:space-between;align-items:center}
+.room.active{background:var(--accent);color:#022;font-weight:600}
+.main{padding:18px;display:flex;flex-direction:column;gap:12px;background:transparent}
+.messages{flex:1;overflow:auto;padding:8px;border-radius:8px;
+background:linear-gradient(180deg,rgba(255,255,255,0.01),transparent)}
+.msg{max-width:72%;padding:10px 12px;margin:8px 0;border-radius:12px;word-wrap:break-word;font-size:14px}
+.msg.me{margin-left:auto;background:linear-gradient(90deg,#04373b,#065f5b)}
+.msg.other{background:rgba(255,255,255,0.03)}
+.meta{font-size:12px;color:var(--muted);margin-top:6px}
+.composer{display:flex;gap:8px;align-items:center}
+.composer input[type=text]{flex:1;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);
+background:transparent;color:inherit;outline:none}
+.composer button{padding:10px 12px;border-radius:10px;border:0;background:var(--accent);color:#022;cursor:pointer}
+.sidebar{background:var(--card);padding:14px;display:flex;flex-direction:column;gap:12px}
+.small-muted{font-size:12px;color:var(--muted)}
+#typing{font-size:13px;color:var(--muted);margin-top:4px;}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Chating User</h1>
+    <div class="small-muted">A chating user you can chat from user or friend just anytime.</div>
+  </header>
+
+  <aside class="rooms">
+    <input id="searchRoom" type="text" placeholder="Search room..." style="width:100%;padding:6px;border-radius:6px;border:0;margin-bottom:6px" />
+    <div style="font-weight:600">All Rooms</div>
+    <div id="rooms" style="overflow:auto;max-height:60vh"></div>
+    <div style="margin-top:auto">
+      <input id="newRoomName" type="text" placeholder="New room name" style="width:100%;padding:6px;border-radius:6px;border:0;margin-bottom:6px" />
+      <button id="createRoom" style="width:100%;padding:8px;border-radius:6px;border:0;background:var(--accent);color:#022;cursor:pointer">Create Room</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div id="roomTitle" style="font-weight:600;font-size:15px">Select a room</div>
+    <div class="messages" id="messages"></div>
+    <div id="typing"></div>
+    <div class="composer">
+      <input id="inputMessage" type="text" placeholder="Type message" disabled />
+      <button id="sendBtn" disabled>Send</button>
+    </div>
+  </main>
+
+  <aside class="sidebar">
+    <label>Your name</label>
+    <input id="username" type="text" />
+    <button id="saveName" style="padding:8px;border-radius:6px;border:0;background:var(--accent);color:#022;cursor:pointer">Set Name</button>
+    <div class="small-muted" id="status"></div>
+  </aside>
+</div>
+
+<script>
+const STORAGE_KEY = 'chat_sync_v3';
+let data = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+if(!data.rooms) data.rooms = {};
+if(!data.users) data.users = [];
+
+function save() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  localStorage.setItem('chat_update_time', Date.now());
+}
+
+let username = localStorage.getItem('chat_username');
+if(!username){
+  username = 'User' + Math.floor(Math.random()*9000+1000);
+  localStorage.setItem('chat_username', username);
+  if(!data.users.includes(username)) {
+    data.users.push(username);
+    save();
+  }
+}
+const usernameInput=document.getElementById('username');
+usernameInput.value=username;
+
+document.getElementById('saveName').onclick=()=>{
+  const name=usernameInput.value.trim();
+  if(!name)return alert('Enter name');
+  if(data.users.includes(name) && name!==username) {
+    alert('This name is taken — choose another.');
+    usernameInput.value=username;
+    return;
+  }
+  // remove old name
+  data.users = data.users.filter(u=>u!==username);
+  username=name;
+  localStorage.setItem('chat_username', name);
+  data.users.push(name);
+  save();
+  alert('Username set!');
+};
+
+const roomsEl=document.getElementById('rooms');
+const msgsEl=document.getElementById('messages');
+const roomTitle=document.getElementById('roomTitle');
+const input=document.getElementById('inputMessage');
+const sendBtn=document.getElementById('sendBtn');
+const searchInput=document.getElementById('searchRoom');
+const typingEl=document.getElementById('typing');
+let currentRoom=null;
+let typingTimeout=null;
+
+function renderRooms(filter=''){
+  roomsEl.innerHTML='';
+  const names=Object.keys(data.rooms).filter(n=>n.toLowerCase().includes(filter.toLowerCase()));
+  if(names.length===0){roomsEl.innerHTML='<div style="color:var(--muted);font-size:13px">No rooms</div>';return;}
+  names.forEach(n=>{
+    const div=document.createElement('div');
+    div.className='room'+(n===currentRoom?' active':'');
+    div.textContent=n;
+    div.onclick=()=>enterRoom(n);
+    roomsEl.appendChild(div);
+  });
+}
+
+function enterRoom(name){
+  currentRoom=name;
+  roomTitle.textContent=name;
+  input.disabled=false;
+  sendBtn.disabled=false;
+  renderMessages();
+  renderRooms(searchInput.value);
+}
+
+function renderMessages(){
+  msgsEl.innerHTML='';
+  const msgs=data.rooms[currentRoom]?.messages||[];
+  msgs.forEach(m=>{
+    const d=document.createElement('div');
+    d.className='msg '+(m.user===username?'me':'other');
+    d.innerHTML=`<div style='font-weight:600'>${m.user}</div><div>${m.text}</div><div class='meta'>${new Date(m.time).toLocaleTimeString()}</div>`;
+    msgsEl.appendChild(d);
+  });
+  msgsEl.scrollTop=msgsEl.scrollHeight;
+}
+
+document.getElementById('createRoom').onclick=()=>{
+  const name=document.getElementById('newRoomName').value.trim();
+  if(!name)return alert('Enter room name');
+  if(data.rooms[name])return alert('Room already exists');
+  data.rooms[name]={owner:username,messages:[]};
+  save();
+  document.getElementById('newRoomName').value='';
+  enterRoom(name);
+};
+
+sendBtn.onclick=()=>{
+  const text=input.value.trim();
+  if(!text)return;
+  if(!currentRoom)return alert('Select room');
+  data.rooms[currentRoom].messages.push({user:username,text,time:Date.now()});
+  save();
+  input.value='';
+  renderMessages();
+  typingEl.textContent='';
+};
+
+// Typing indicator
+input.addEventListener('input', ()=>{
+  if(!currentRoom)return;
+  data.rooms[currentRoom].typing={user:username,time:Date.now()};
+  save();
+  clearTimeout(typingTimeout);
+  typingTimeout=setTimeout(()=>{
+    if(data.rooms[currentRoom]?.typing?.user===username){
+      delete data.rooms[currentRoom].typing;
+      save();
+    }
+  },2000);
+});
+
+// send on enter
+input.addEventListener('keydown', e=>{if(e.key==='Enter')sendBtn.click();});
+
+// search
+searchInput.addEventListener('input', e=>renderRooms(e.target.value));
+
+// sync between tabs
+window.addEventListener('storage', (e)=>{
+  if(e.key===STORAGE_KEY || e.key==='chat_update_time'){
+    data = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    if(!data.rooms)data.rooms={};
+    if(!data.users)data.users=[];
+    renderRooms(searchInput.value);
+    if(currentRoom)renderMessages();
+    updateTypingIndicator();
+  }
+});
+
+function updateTypingIndicator(){
+  if(!currentRoom)return;
+  const t=data.rooms[currentRoom]?.typing;
+  if(t && t.user!==username){
+    typingEl.textContent=t.user+' is typing...';
+  } else {
+    typingEl.textContent='';
+  }
+}
+
+setInterval(updateTypingIndicator,1000);
+renderRooms();
+</script>
+</body>
+</html>
